@@ -1,0 +1,9 @@
+'use client';
+import {MapPin,Clock3,ExternalLink,Users,Ticket} from 'lucide-react';
+import {Modal} from '@/components/ui';
+import {fullTime} from '@/lib/time';
+import type {Activity,Plan} from '@/lib/types';
+import ActivityChat from '@/features/chat/ActivityChat';
+export default function EventDetails({event,onClose,onAdd,plan,busy}:{event:Activity;onClose:()=>void;onAdd:(status:'maybe'|'going')=>void;plan?:Plan;busy?:boolean}){
+ return <Modal title={event.title} description={event.categories.join(' · ')} onClose={onClose} wide><div className="details-grid"><section><div className="detail-fact"><Clock3 size={19}/><div><strong>{fullTime(event.starts_at)}</strong><p>{event.ends_at?'Until '+fullTime(event.ends_at):'End time not confirmed'}</p></div></div><div className="detail-fact"><MapPin size={19}/><div><strong>{event.venue}</strong><p>{event.address}</p></div></div><div className="detail-fact"><Users size={19}/><p>{event.eligibility}</p></div><div className="detail-fact"><Ticket size={19}/><p>{event.price}<br/>{event.registration}</p></div><p className="description">{event.description||'Visit the source for more information.'}</p><div className="source-links">{event.source_urls.map((url,i)=><a key={url} href={url} target="_blank" rel="noreferrer">{i===0?'Original event & tickets':'Additional source'}<ExternalLink size={13}/></a>)}</div><small className="muted">Last checked {fullTime(event.last_verified_at)}. Details may change.</small><div className="dialog-actions">{plan?<p>Saved in <strong>{plan.status==='going'?'Going':'Maybe'}</strong></p>:<><button disabled={busy} onClick={()=>onAdd('maybe')}>Add to Maybe</button><button className="primary" disabled={busy||event.status==='cancelled'||new Date(event.ends_at||event.starts_at).getTime()<=Date.now()} onClick={()=>onAdd('going')}>I’m going</button></>}</div></section><ActivityChat eventId={event.id}/></div></Modal>;
+}

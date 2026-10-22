@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import text
 from app.core.database import engine
 
@@ -25,7 +26,7 @@ app.add_middleware(SessionMiddleware,secret_key=settings.secret_key,session_cook
 @app.exception_handler(HTTPException)
 async def http_error(request:Request,exc:HTTPException):
     body=exc.detail if isinstance(exc.detail,dict) else {'code':'request_failed','message':str(exc.detail),'details':{}}
-    return JSONResponse(body,status_code=exc.status_code)
+    return JSONResponse(jsonable_encoder(body),status_code=exc.status_code)
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(request:Request,exc:RequestValidationError):
@@ -38,3 +39,5 @@ from app.plans.router import router as plans_router
 from app.reminders.router import router as reminders_router
 app.include_router(plans_router)
 app.include_router(reminders_router)
+from app.chat.router import router as chat_router
+app.include_router(chat_router)
