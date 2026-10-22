@@ -1,0 +1,12 @@
+[project]
+name = "atlanta-activities-api"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["fastapi", "uvicorn", "sqlalchemy>=2", "psycopg[binary]", "geoalchemy2", "alembic", "pydantic-settings", "httpx", "argon2-cffi", "authlib", "beautifulsoup4", "shapely", "python-dateutil", "email-validator", "itsdangerous"]
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+[tool.ruff]
+line-length = 110
