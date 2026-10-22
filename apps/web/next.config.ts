@@ -1,6 +1,13 @@
-import type { NextConfig } from 'next';
+import type { NextConfig } from "next";
 const config: NextConfig = {
-  output: 'standalone',
-  async rewrites() { return [{source:'/api/:path*', destination:`${process.env.API_ORIGIN || 'http://127.0.0.1:8000'}/api/:path*`}]; },
+  output: "standalone",
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${process.env.API_ORIGIN || "http://127.0.0.1:8000"}/api/:path*`,
+      },
+    ];
+  },
 };
 export default config;

@@ -1,26 +1,442 @@
-'use client';
-import dynamic from 'next/dynamic';
-import {useEffect,useState} from 'react';
-import {Navigation,SlidersHorizontal,MapPin,ArrowRight,RotateCcw} from 'lucide-react';
-import {api,send} from '@/lib/api';
-import type {Activity,Config,EventPage,Filters,MapPoints} from '@/lib/types';
-import {Loading,Notice} from '@/components/ui';
-import {day} from '@/lib/time';
-import EventCard from './EventCard';
-import EventDetails from './EventDetails';
-import {usePlans} from '@/features/plans/usePlans';
-const ActivityMap=dynamic(()=>import('@/features/map/ActivityMap'),{ssr:false,loading:()=> <div className="map-panel"><Loading label="Loading map…"/></div>});
-const defaultFilters:Filters={week:'this',categories:[],geo_mode:'none'};
-export default function Explore(){
- const [config,setConfig]=useState<Config|null>(null),[filters,setFilters]=useState<Filters>(defaultFilters),[page,setPage]=useState<EventPage|null>(null),[points,setPoints]=useState<MapPoints|null>(null),[selected,setSelected]=useState<Activity|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[geoError,setGeoError]=useState(''),[retry,setRetry]=useState(0),[radius,setRadius]=useState(2),[locating,setLocating]=useState(false);
- const board=usePlans();
- useEffect(()=>{api<Config>('/config').then(setConfig).catch(e=>setError(e.message));board.reload().catch(e=>board.setError(e.message));const p=new URLSearchParams(location.search);const week=p.get('week')==='next'?'next':'this';const cats=p.getAll('category');setFilters({...defaultFilters,week,categories:cats});},[]); // eslint-disable-line
- useEffect(()=>{const p=new URLSearchParams();p.set('week',filters.week);filters.categories.forEach(c=>p.append('category',c));history.replaceState(null,'','?'+p.toString());if(filters.geo_mode==='radius'&&!filters.center){setLoading(false);return;}if(filters.geo_mode==='polygon'&&!filters.polygon){setLoading(false);return;}
- const controller=new AbortController();setLoading(true);setError('');
- Promise.all([api<EventPage>('/events/search',{...send('POST',{...filters,limit:30}),signal:controller.signal}),api<MapPoints>('/events/map',{...send('POST',filters),signal:controller.signal})]).then(([p,m])=>{setPage(p);setPoints(m);}).catch(e=>{if(e.name!=='AbortError')setError(e.message);}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[filters,retry]);
- function mode(value:Filters['geo_mode']){setGeoError('');setFilters(f=>({week:f.week,categories:f.categories,geo_mode:value,...(value==='radius'?{radius_m:radius*1609.344}:{})}));}
- function locate(){if(!navigator.geolocation){setGeoError('Location is unavailable. Click the map to choose a center.');return;}setLocating(true);navigator.geolocation.getCurrentPosition(p=>{setFilters(f=>({week:f.week,categories:f.categories,geo_mode:'radius',radius_m:radius*1609.344,center:[p.coords.longitude,p.coords.latitude]}));setLocating(false);setGeoError('');},()=>{setGeoError('Location access was unavailable. Click the map to set a center.');setLocating(false);},{timeout:10000,maximumAge:60000});}
- async function select(id:string){try{setSelected(await api<Activity>('/events/'+id));}catch(e){setError((e as Error).message);}}
- async function more(){if(page?.next_cursor==null)return;setLoading(true);try{const p=await api<EventPage>('/events/search',send('POST',{...filters,cursor:page.next_cursor}));setPage(old=>old?{...p,items:[...old.items,...p.items]}:p);}catch(e){setError((e as Error).message);}finally{setLoading(false);}}
- return <><section className="page-intro"><div><span className="eyebrow"><span className="blue-dot"/>ATLANTA, GEORGIA</span><h1>Good things <em>are happening.</em></h1><p>Your week in Downtown, Midtown & Georgia Tech. Find your kind of out.</p></div><div className="intro-note"><MapPin size={18}/><span>Three neighborhoods.<br/><strong>One very good week.</strong></span></div></section><section className="week-bar"><div className="segmented" aria-label="Week">{(['this','next'] as const).map(w=><button key={w} aria-pressed={filters.week===w} className={filters.week===w?'selected':''} onClick={()=>setFilters(f=>({...f,week:w}))}>{w==='this'?'This week':'Next week'}</button>)}</div><span className="week-dates">{page?`${day(page.week_start)} – ${day(new Date(new Date(page.week_end).getTime()-1000).toISOString())}`:'Monday through Sunday'}</span><span className="timezone">Eastern time</span></section>{board.error&&<Notice error>{board.error}</Notice>}<div className="explorer"><aside className="filter-panel"><h2><SlidersHorizontal size={17}/>Find your plans</h2><fieldset><legend>WHAT ARE YOU INTO?</legend>{(config?.categories||['Football','Sports','Parade','Music','Arts','Festival','Georgia Tech','Community']).map(c=><label className="check" key={c}><input type="checkbox" checked={filters.categories.includes(c)} onChange={()=>setFilters(f=>({...f,categories:f.categories.includes(c)?f.categories.filter(x=>x!==c):[...f.categories,c]}))}/><span>{c}</span></label>)}</fieldset><fieldset><legend>WHERE TO?</legend><label className="field-label" htmlFor="geo-mode">Location filter</label><select id="geo-mode" value={filters.geo_mode} onChange={e=>mode(e.target.value as Filters['geo_mode'])}><option value="none">All neighborhoods</option><option value="radius">Nearby activities</option><option value="polygon">Draw an area</option></select>{filters.geo_mode==='radius'&&<><button className="locate" disabled={locating} onClick={locate}><Navigation size={15}/>{locating?'Finding you…':'Use my location'}</button><label className="radius-label" htmlFor="distance">Within <strong>{radius} miles</strong></label><input id="distance" type="range" min="0.1" max="50" step="0.1" value={radius} onChange={e=>{const value=Number(e.target.value);setRadius(value);setFilters(f=>({...f,radius_m:value*1609.344}));}}/><label className="sr-only" htmlFor="distance-number">Distance in miles</label><input id="distance-number" type="number" min="0.1" max="50" step="0.1" value={radius} onChange={e=>{const n=Number(e.target.value);if(n>=0.1&&n<=50){setRadius(n);setFilters(f=>({...f,radius_m:n*1609.344}));}}}/><small>Or click the map to choose your center.</small></>}{filters.geo_mode==='polygon'&&<><p className="muted">Click points on the map, then finish your area.</p><button className="small" onClick={()=>mode('polygon')}>Clear & redraw</button></>}{geoError&&<p role="status" className="error-text">{geoError}</p>}</fieldset><button className="text-button" onClick={()=>{setFilters(defaultFilters);setGeoError('');}}><RotateCcw size={14}/>Reset filters</button><div className="filter-foot">Something for everyone.<br/>Check each activity’s eligibility before you go.</div></aside><section className="activities" aria-label="Activities"><div className="result-heading"><h2>{page?.total??'—'} activities</h2><span>{loading?'Updating…':'SORTED BY DATE'}</span></div>{error&&<Notice error>{error} <button className="small" onClick={()=>{if(!config)api<Config>('/config').then(setConfig).catch(e=>setError(e.message));setRetry(n=>n+1);}}>Retry</button></Notice>}{!page&&loading&&<Loading label="Finding your next plan…"/>}{!loading&&page?.total===0&&<div className="empty"><MapPin size={32}/><h3>No activities in this selection.</h3><p>Try another week, a wider area or fewer filters.</p><button onClick={()=>setFilters(defaultFilters)}>Reset filters</button></div>}{page?.items.map(e=><EventCard key={e.id} event={e} plan={board.plans.find(p=>p.event_id===e.id)} onOpen={()=>setSelected(e)} onAdd={s=>board.move(e,s)}/>)}{page?.next_cursor!=null&&<button className="load-more" onClick={more} disabled={loading}>Load more activities <ArrowRight size={15}/></button>}<p className="data-note">Automatically collected from event sources. Availability and details may change.</p></section>{config?<ActivityMap points={points} config={config} filters={filters} onCenter={center=>setFilters(f=>({...f,center}))} onPolygon={polygon=>setFilters(f=>({...f,polygon}))} onSelect={select}/>:<div className="map-panel"><Loading label="Opening the map…"/></div>}</div>{config&&<details className="sources-summary"><summary>Activity sources & last sync</summary>{config.sources.length?config.sources.map((s,i)=><p key={i}>{s.name}: {s.count} activities · {s.status==='failed'?'Needs attention':'Synced'} · {new Date(s.last_run).toLocaleString('en-US',{timeZone:'America/New_York'})}</p>):<p>No source sync has completed yet. Activities appear after collection runs.</p>}</details>}{selected&&<EventDetails event={selected} plan={board.plans.find(p=>p.event_id===selected.id)} busy={board.busy} onClose={()=>setSelected(null)} onAdd={s=>{setSelected(null);board.move(selected,s);}}/>}{board.conflictDialog}</>;
+"use client";
+import dynamic from "next/dynamic";
+import { useEffect, useState, useRef } from "react";
+import {
+  Navigation,
+  SlidersHorizontal,
+  MapPin,
+  ArrowRight,
+  RotateCcw,
+} from "lucide-react";
+import { api, send } from "@/lib/api";
+import type {
+  Activity,
+  Config,
+  EventPage,
+  Filters,
+  MapPoints,
+} from "@/lib/types";
+import { Loading, Notice } from "@/components/ui";
+import { day } from "@/lib/time";
+import EventCard from "./EventCard";
+import EventDetails from "./EventDetails";
+import { usePlans } from "@/features/plans/usePlans";
+const ActivityMap = dynamic(() => import("@/features/map/ActivityMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="map-panel">
+      <Loading label="Loading map…" />
+    </div>
+  ),
+});
+const defaultFilters: Filters = {
+  week: "this",
+  categories: [],
+  geo_mode: "none",
+};
+export default function Explore() {
+  const [config, setConfig] = useState<Config | null>(null),
+    [filters, setFilters] = useState<Filters>(defaultFilters),
+    [page, setPage] = useState<EventPage | null>(null),
+    [points, setPoints] = useState<MapPoints | null>(null),
+    [selected, setSelected] = useState<Activity | null>(null),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState(""),
+    [geoError, setGeoError] = useState(""),
+    [retry, setRetry] = useState(0),
+    [radius, setRadius] = useState(2),
+    [locating, setLocating] = useState(false);
+  const board = usePlans();
+  const generation = useRef(0);
+  useEffect(() => {
+    api<Config>("/config")
+      .then(setConfig)
+      .catch((e) => setError(e.message));
+    board.reload().catch((e) => board.setError(e.message));
+    const p = new URLSearchParams(location.search);
+    const week = p.get("week") === "next" ? "next" : "this";
+    const cats = p.getAll("category");
+    setFilters({ ...defaultFilters, week, categories: cats });
+  }, []); // eslint-disable-line
+  useEffect(() => {
+    generation.current += 1;
+    const p = new URLSearchParams();
+    p.set("week", filters.week);
+    filters.categories.forEach((c) => p.append("category", c));
+    history.replaceState(null, "", "?" + p.toString());
+    if (filters.geo_mode === "radius" && !filters.center) {
+      setPage(null);
+      setPoints(null);
+      setLoading(false);
+      return;
+    }
+    if (filters.geo_mode === "polygon" && !filters.polygon) {
+      setPage(null);
+      setPoints(null);
+      setLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    Promise.all([
+      api<EventPage>("/events/search", {
+        ...send("POST", { ...filters, limit: 30 }),
+        signal: controller.signal,
+      }),
+      api<MapPoints>("/events/map", {
+        ...send("POST", filters),
+        signal: controller.signal,
+      }),
+    ])
+      .then(([p, m]) => {
+        setPage(p);
+        setPoints(m);
+      })
+      .catch((e) => {
+        if (e.name !== "AbortError") setError(e.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [filters, retry]);
+  function mode(value: Filters["geo_mode"]) {
+    setGeoError("");
+    setFilters((f) => ({
+      week: f.week,
+      categories: f.categories,
+      geo_mode: value,
+      ...(value === "radius" ? { radius_m: radius * 1609.344 } : {}),
+    }));
+  }
+  function locate() {
+    if (!navigator.geolocation) {
+      setGeoError("Location is unavailable. Click the map to choose a center.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setFilters((f) => ({
+          week: f.week,
+          categories: f.categories,
+          geo_mode: "radius",
+          radius_m: radius * 1609.344,
+          center: [p.coords.longitude, p.coords.latitude],
+        }));
+        setLocating(false);
+        setGeoError("");
+      },
+      () => {
+        setGeoError(
+          "Location access was unavailable. Click the map to set a center.",
+        );
+        setLocating(false);
+      },
+      { timeout: 10000, maximumAge: 60000 },
+    );
+  }
+  async function select(id: string) {
+    try {
+      setSelected(await api<Activity>("/events/" + id));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function more() {
+    if (page?.next_cursor == null) return;
+    const requestGeneration = generation.current;
+    setLoading(true);
+    try {
+      const p = await api<EventPage>(
+        "/events/search",
+        send("POST", { ...filters, cursor: page.next_cursor }),
+      );
+      if (requestGeneration === generation.current)
+        setPage((old) =>
+          old ? { ...p, items: [...old.items, ...p.items] } : p,
+        );
+    } catch (e) {
+      if (requestGeneration === generation.current)
+        setError((e as Error).message);
+    } finally {
+      if (requestGeneration === generation.current) setLoading(false);
+    }
+  }
+  return (
+    <>
+      <section className="page-intro">
+        <div>
+          <span className="eyebrow">
+            <span className="blue-dot" />
+            ATLANTA, GEORGIA
+          </span>
+          <h1>
+            Good things <em>are happening.</em>
+          </h1>
+          <p>
+            Your week in Downtown, Midtown & Georgia Tech. Find your kind of
+            out.
+          </p>
+        </div>
+        <div className="intro-note">
+          <MapPin size={18} />
+          <span>
+            Three neighborhoods.
+            <br />
+            <strong>One very good week.</strong>
+          </span>
+        </div>
+      </section>
+      <section className="week-bar">
+        <div className="segmented" aria-label="Week">
+          {(["this", "next"] as const).map((w) => (
+            <button
+              key={w}
+              aria-pressed={filters.week === w}
+              className={filters.week === w ? "selected" : ""}
+              onClick={() => setFilters((f) => ({ ...f, week: w }))}
+            >
+              {w === "this" ? "This week" : "Next week"}
+            </button>
+          ))}
+        </div>
+        <span className="week-dates">
+          {page
+            ? `${day(page.week_start)} – ${day(new Date(new Date(page.week_end).getTime() - 1000).toISOString())}`
+            : "Monday through Sunday"}
+        </span>
+        <span className="timezone">Eastern time</span>
+      </section>
+      {board.error && <Notice error>{board.error}</Notice>}
+      <div className="explorer">
+        <aside className="filter-panel">
+          <h2>
+            <SlidersHorizontal size={17} />
+            Find your plans
+          </h2>
+          <fieldset>
+            <legend>WHAT ARE YOU INTO?</legend>
+            {(
+              config?.categories || [
+                "Football",
+                "Sports",
+                "Parade",
+                "Music",
+                "Arts",
+                "Festival",
+                "Georgia Tech",
+                "Community",
+              ]
+            ).map((c) => (
+              <label className="check" key={c}>
+                <input
+                  type="checkbox"
+                  checked={filters.categories.includes(c)}
+                  onChange={() =>
+                    setFilters((f) => ({
+                      ...f,
+                      categories: f.categories.includes(c)
+                        ? f.categories.filter((x) => x !== c)
+                        : [...f.categories, c],
+                    }))
+                  }
+                />
+                <span>{c}</span>
+              </label>
+            ))}
+          </fieldset>
+          <fieldset>
+            <legend>WHERE TO?</legend>
+            <label className="field-label" htmlFor="geo-mode">
+              Location filter
+            </label>
+            <select
+              id="geo-mode"
+              value={filters.geo_mode}
+              onChange={(e) => mode(e.target.value as Filters["geo_mode"])}
+            >
+              <option value="none">All neighborhoods</option>
+              <option value="radius">Nearby activities</option>
+              <option value="polygon">Draw an area</option>
+            </select>
+            {filters.geo_mode === "radius" && (
+              <>
+                <button className="locate" disabled={locating} onClick={locate}>
+                  <Navigation size={15} />
+                  {locating ? "Finding you…" : "Use my location"}
+                </button>
+                <label className="radius-label" htmlFor="distance">
+                  Within <strong>{radius} miles</strong>
+                </label>
+                <input
+                  id="distance"
+                  type="range"
+                  min="0.1"
+                  max="50"
+                  step="0.1"
+                  value={radius}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    setRadius(value);
+                    setFilters((f) => ({ ...f, radius_m: value * 1609.344 }));
+                  }}
+                />
+                <label className="sr-only" htmlFor="distance-number">
+                  Distance in miles
+                </label>
+                <input
+                  id="distance-number"
+                  type="number"
+                  min="0.1"
+                  max="50"
+                  step="0.1"
+                  value={radius}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (n >= 0.1 && n <= 50) {
+                      setRadius(n);
+                      setFilters((f) => ({ ...f, radius_m: n * 1609.344 }));
+                    }
+                  }}
+                />
+                <small>Or click the map to choose your center.</small>
+              </>
+            )}
+            {filters.geo_mode === "polygon" && (
+              <>
+                <p className="muted">
+                  Click points on the map, then finish your area.
+                </p>
+                <button className="small" onClick={() => mode("polygon")}>
+                  Clear & redraw
+                </button>
+              </>
+            )}
+            {geoError && (
+              <p role="status" className="error-text">
+                {geoError}
+              </p>
+            )}
+          </fieldset>
+          <button
+            className="text-button"
+            onClick={() => {
+              setFilters(defaultFilters);
+              setGeoError("");
+            }}
+          >
+            <RotateCcw size={14} />
+            Reset filters
+          </button>
+          <div className="filter-foot">
+            Something for everyone.
+            <br />
+            Check each activity’s eligibility before you go.
+          </div>
+        </aside>
+        <section className="activities" aria-label="Activities">
+          <div className="result-heading">
+            <h2>{page?.total ?? "—"} activities</h2>
+            <span>{loading ? "Updating…" : "SORTED BY DATE"}</span>
+          </div>
+          {error && (
+            <Notice error>
+              {error}{" "}
+              <button
+                className="small"
+                onClick={() => {
+                  if (!config)
+                    api<Config>("/config")
+                      .then(setConfig)
+                      .catch((e) => setError(e.message));
+                  setRetry((n) => n + 1);
+                }}
+              >
+                Retry
+              </button>
+            </Notice>
+          )}
+          {!page && loading && <Loading label="Finding your next plan…" />}
+          {!loading && page?.total === 0 && (
+            <div className="empty">
+              <MapPin size={32} />
+              <h3>No activities in this selection.</h3>
+              <p>Try another week, a wider area or fewer filters.</p>
+              <button onClick={() => setFilters(defaultFilters)}>
+                Reset filters
+              </button>
+            </div>
+          )}
+          {page?.items.map((e) => (
+            <EventCard
+              key={e.id}
+              event={e}
+              plan={board.plans.find((p) => p.event_id === e.id)}
+              onOpen={() => setSelected(e)}
+              onAdd={(s) => board.move(e, s)}
+            />
+          ))}
+          {page?.next_cursor != null && (
+            <button className="load-more" onClick={more} disabled={loading}>
+              Load more activities <ArrowRight size={15} />
+            </button>
+          )}
+          <p className="data-note">
+            Automatically collected from event sources. Availability and details
+            may change.
+          </p>
+        </section>
+        {config ? (
+          <ActivityMap
+            points={points}
+            config={config}
+            filters={filters}
+            onCenter={(center) => setFilters((f) => ({ ...f, center }))}
+            onPolygon={(polygon) => setFilters((f) => ({ ...f, polygon }))}
+            onSelect={select}
+          />
+        ) : (
+          <div className="map-panel">
+            <Loading label="Opening the map…" />
+          </div>
+        )}
+      </div>
+      {config && (
+        <details className="sources-summary">
+          <summary>Activity sources & last sync</summary>
+          {config.sources.length ? (
+            config.sources.map((s, i) => (
+              <p key={i}>
+                {s.name}: {s.count} activities ·{" "}
+                {s.status === "failed" ? "Needs attention" : "Synced"} ·{" "}
+                {new Date(s.last_run).toLocaleString("en-US", {
+                  timeZone: "America/New_York",
+                })}
+              </p>
+            ))
+          ) : (
+            <p>
+              No source sync has completed yet. Activities appear after
+              collection runs.
+            </p>
+          )}
+        </details>
+      )}
+      {selected && (
+        <EventDetails
+          event={selected}
+          plan={board.plans.find((p) => p.event_id === selected.id)}
+          busy={board.busy}
+          onClose={() => setSelected(null)}
+          onAdd={(s) => {
+            setSelected(null);
+            board.move(selected, s);
+          }}
+        />
+      )}
+      {board.conflictDialog}
+    </>
+  );
 }

@@ -1,2 +1,4 @@
-import AuthPage from '@/features/auth/AuthPage';
-export default function Page(){return <AuthPage mode="forgot-password"/>;}
+import AuthPage from "@/features/auth/AuthPage";
+export default function Page() {
+  return <AuthPage mode="forgot-password" />;
+}

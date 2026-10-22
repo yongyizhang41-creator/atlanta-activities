@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_USER: atlanta
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atlanta}
+      POSTGRES_DB: atlanta
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atlanta"]
+      interval: 5s
+      retries: 15
+  migrate:
+    build: ./apps/api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://atlanta:${POSTGRES_PASSWORD:-atlanta}@db:5432/atlanta
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db: {condition: service_healthy}
+  api:
+    build: ./apps/api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://atlanta:${POSTGRES_PASSWORD:-atlanta}@db:5432/atlanta
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
+  worker:
+    build: ./apps/api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://atlanta:${POSTGRES_PASSWORD:-atlanta}@db:5432/atlanta
+    command: ["python", "-m", "app.worker.main", "run"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
+  web:
+    build:
+      context: ./apps/web
+      args: {API_ORIGIN: "http://api:8000"}
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [api]
+    restart: unless-stopped
+volumes:
+  pgdata:
