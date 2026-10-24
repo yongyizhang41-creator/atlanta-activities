@@ -7,13 +7,13 @@ Public site: https://atlanta-activities.vercel.app
 - Vercel Hobby deploys `apps/web` from `main`. `API_ORIGIN` points to the Render API.
 - Render Free runs `apps/api` using Docker and `sh start.sh`. Startup applies Alembic migrations. `/api/health` checks Neon and PostGIS. Idle services can take about a minute to wake up.
 - Neon Free stores application data. Credentials live in platform secret settings, never in this repository.
-- Google OAuth uses the existing client in the `atlanta-activities` Google Cloud project. The live JavaScript origin is `https://atlanta-activities.vercel.app`; its redirect URI is `https://atlanta-activities.vercel.app/api/auth/google/callback`. `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are configured on Render. Localhost entries are retained for development.
+- Google OAuth uses the existing client in the `atlanta-activities` Google Cloud project. The live JavaScript origin is `https://atlanta-activities.vercel.app`; its redirect URI is `https://atlanta-activities.vercel.app/api/auth/google/callback`. `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are configured on Render. Localhost entries are retained for development. Live sign-in and the resulting verified Google-connected account were confirmed on October 23, 2026.
 
 ## Activity refresh
 
 `.github/workflows/ingestion.yml` runs on standard GitHub-hosted Linux runners, free while the repository remains public. It refreshes the current and next week at minute 17 every six hours, and supports manual dispatch from Actions. GitHub schedules can be delayed; they are not exact-time delivery infrastructure. GitHub can disable scheduled workflows in inactive public repositories after 60 days without repository activity.
 
-The encrypted `INGESTION_DATABASE_URL` repository secret connects to the demo database. Only the ingestion command receives it; no pull-request event triggers this workflow. Repository collaborators who can modify workflows can use repository secrets, so restrict write access accordingly. The workflow refuses to run on private repositories or branches other than `main`.
+The encrypted `INGESTION_DATABASE_URL` repository secret uses Neon's direct (unpooled) endpoint, because ingestion uses session-level advisory locks. Only the ingestion command receives it; no pull-request event triggers this workflow. Repository collaborators who can modify workflows can use repository secrets, so restrict write access accordingly. The workflow refuses to run on private repositories or branches other than `main`.
 
 Runs are serialized. Public venue geocoding uses one shared Actions cache, with the application's existing 16-second request spacing. The cache contains public venue lookups, not user records or credentials. Individual source failures and rejected records remain visible in the database and ingestion output. A successful workflow does not mean every source returned publishable activities.
 
