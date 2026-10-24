@@ -7,6 +7,8 @@ import {
   MapPin,
   ArrowRight,
   RotateCcw,
+  List,
+  Map,
 } from "lucide-react";
 import { api, send } from "@/lib/api";
 import type {
@@ -17,8 +19,10 @@ import type {
   MapPoints,
 } from "@/lib/types";
 import { Loading, Notice } from "@/components/ui";
-import { day } from "@/lib/time";
-import EventCard from "./EventCard";
+import { weekLabel } from "@/lib/time";
+import { maximumMiles } from "@/features/map/coverage";
+import PanelDivider from "./PanelDivider";
+import EventDayGroups from "./EventDayGroups";
 import EventDetails from "./EventDetails";
 import { usePlans } from "@/features/plans/usePlans";
 const ActivityMap = dynamic(() => import("@/features/map/ActivityMap"), {
@@ -35,6 +39,9 @@ const defaultFilters: Filters = {
   geo_mode: "none",
 };
 export default function Explore() {
+  const [hoveredActivity, setHoveredActivity] = useState<string | null>(null);
+  const [view, setView] = useState<"list" | "map">("list");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [config, setConfig] = useState<Config | null>(null),
     [filters, setFilters] = useState<Filters>(defaultFilters),
     [page, setPage] = useState<EventPage | null>(null),
@@ -45,8 +52,27 @@ export default function Explore() {
     [geoError, setGeoError] = useState(""),
     [retry, setRetry] = useState(0),
     [radius, setRadius] = useState(2),
-    [locating, setLocating] = useState(false);
+    [locating, setLocating] = useState(false),
+    [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const maxMiles = config ? maximumMiles(config.coverage, filters.center) : 2;
   const board = usePlans();
+  function chooseRadius(value: number) {
+    const next = Math.max(0.1, Math.min(maxMiles, Math.round(value * 10) / 10));
+    setRadius(next);
+    setFilters((f) => ({ ...f, radius_m: next * 1609.344 }));
+  }
+  function chooseCenter(center: [number, number]) {
+    const limit = config ? maximumMiles(config.coverage, center) : 2;
+    const next = Math.min(radius, limit);
+    setRadius(next);
+    setFilters((f) => ({
+      week: f.week,
+      categories: f.categories,
+      geo_mode: "radius",
+      center,
+      radius_m: next * 1609.344,
+    }));
+  }
   const generation = useRef(0);
   useEffect(() => {
     api<Config>("/config")
@@ -60,6 +86,7 @@ export default function Explore() {
   }, []); // eslint-disable-line
   useEffect(() => {
     generation.current += 1;
+    setHoveredActivity(null);
     const p = new URLSearchParams();
     p.set("week", filters.week);
     filters.categories.forEach((c) => p.append("category", c));
@@ -83,16 +110,16 @@ export default function Explore() {
       api<EventPage>("/events/search", {
         ...send("POST", { ...filters, limit: 30 }),
         signal: controller.signal,
+      }).then((p) => {
+        if (!controller.signal.aborted) setPage(p);
       }),
       api<MapPoints>("/events/map", {
         ...send("POST", filters),
         signal: controller.signal,
+      }).then((m) => {
+        if (!controller.signal.aborted) setPoints(m);
       }),
     ])
-      .then(([p, m]) => {
-        setPage(p);
-        setPoints(m);
-      })
       .catch((e) => {
         if (e.name !== "AbortError") setError(e.message);
       })
@@ -103,38 +130,55 @@ export default function Explore() {
   }, [filters, retry]);
   function mode(value: Filters["geo_mode"]) {
     setGeoError("");
+    if (value !== "none") setView("map");
+    const center: [number, number] = userLocation || [-84.391, 33.774];
+    const nextRadius = Math.min(
+      radius,
+      config ? maximumMiles(config.coverage, center) : 2,
+    );
+    if (value === "radius") setRadius(nextRadius);
     setFilters((f) => ({
       week: f.week,
       categories: f.categories,
       geo_mode: value,
-      ...(value === "radius" ? { radius_m: radius * 1609.344 } : {}),
+      ...(value === "radius"
+        ? { center, radius_m: nextRadius * 1609.344 }
+        : {}),
     }));
   }
   function locate() {
+    if (locating) return;
+    setGeoError("");
     if (!navigator.geolocation) {
-      setGeoError("Location is unavailable. Click the map to choose a center.");
+      setGeoError(
+        "Location is unavailable in this browser. You can still explore the map.",
+      );
       return;
     }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (p) => {
-        setFilters((f) => ({
-          week: f.week,
-          categories: f.categories,
-          geo_mode: "radius",
-          radius_m: radius * 1609.344,
-          center: [p.coords.longitude, p.coords.latitude],
-        }));
+        const position: [number, number] = [
+          p.coords.longitude,
+          p.coords.latitude,
+        ];
+        setUserLocation(position);
+        setView("map");
+        if (filters.geo_mode === "radius") chooseCenter(position);
         setLocating(false);
         setGeoError("");
       },
-      () => {
+      (error) => {
         setGeoError(
-          "Location access was unavailable. Click the map to set a center.",
+          error.code === 1
+            ? "Location permission is blocked. Allow location access in your browser settings and try again."
+            : error.code === 3
+              ? "Finding your location took too long. Try again."
+              : "Your location could not be found. Check your device location settings and try again.",
         );
         setLocating(false);
       },
-      { timeout: 10000, maximumAge: 60000 },
+      { timeout: 10000, maximumAge: 0 },
     );
   }
   async function select(id: string) {
@@ -166,30 +210,52 @@ export default function Explore() {
   }
   return (
     <>
-      <section className="page-intro">
-        <div>
+      <section className="city-hero" aria-labelledby="city-title">
+        <div className="city-hero-copy">
           <span className="eyebrow">
-            <span className="blue-dot" />
-            ATLANTA, GEORGIA
+            <span className="blue-dot" /> Atlanta, Georgia
           </span>
-          <h1>
-            Good things <em>are happening.</em>
-          </h1>
-          <p>
-            Your week in Downtown, Midtown & Georgia Tech. Find your kind of
-            out.
-          </p>
+          <h1 id="city-title">Your Atlanta week.</h1>
+          <p>A little closer to your next good plan.</p>
+          <a className="city-hero-link" href="#discover">
+            Find your kind of out <ArrowRight size={17} />
+          </a>
         </div>
-        <div className="intro-note">
-          <MapPin size={18} />
-          <span>
-            Three neighborhoods.
-            <br />
-            <strong>One very good week.</strong>
-          </span>
+        <div className="city-hero-caption">
+          <MapPin size={15} /> Downtown · Midtown · Georgia Tech
         </div>
       </section>
-      <section className="week-bar">
+      <div className="discovery-heading" id="discover">
+        <div>
+          <h2>Make room for something good.</h2>
+          <p>Explore what’s on, then make it a plan.</p>
+        </div>
+        <div className="location-action">
+          <button
+            className="primary"
+            disabled={locating}
+            aria-busy={locating}
+            aria-describedby="location-feedback"
+            onClick={() => locate()}
+          >
+            <Navigation size={17} aria-hidden="true" />
+            {locating ? "Locating…" : "Locate me"}
+          </button>
+          <p
+            id="location-feedback"
+            role="status"
+            className={geoError ? "error-text" : ""}
+          >
+            {geoError ||
+              (locating
+                ? "Finding your current position…"
+                : userLocation
+                  ? "Your position is marked on the map."
+                  : "Show your position on the map.")}
+          </p>
+        </div>
+      </div>
+      <section className="week-bar" aria-label="Discovery dates">
         <div className="segmented" aria-label="Week">
           {(["this", "next"] as const).map((w) => (
             <button
@@ -203,21 +269,69 @@ export default function Explore() {
           ))}
         </div>
         <span className="week-dates">
-          {page
-            ? `${day(page.week_start)} – ${day(new Date(new Date(page.week_end).getTime() - 1000).toISOString())}`
-            : "Monday through Sunday"}
+          {weekLabel(page?.week_start, page?.week_end)}
         </span>
         <span className="timezone">Eastern time</span>
       </section>
+      <div className="discovery-toolbar">
+        <button
+          aria-expanded={filtersOpen}
+          aria-controls="browse-filters"
+          onClick={() => setFiltersOpen((open) => !open)}
+        >
+          <SlidersHorizontal size={16} /> Filters
+          {filters.categories.length ? ` (${filters.categories.length})` : ""}
+        </button>
+        <div className="segmented" role="group" aria-label="Discovery view">
+          <button
+            aria-label="List view"
+            aria-pressed={view === "list"}
+            className={view === "list" ? "selected" : ""}
+            onClick={() => setView("list")}
+          >
+            <List size={16} /> List
+          </button>
+          <button
+            aria-label="Map view"
+            aria-pressed={view === "map"}
+            className={view === "map" ? "selected" : ""}
+            onClick={() => setView("map")}
+          >
+            <Map size={16} /> Map
+          </button>
+        </div>
+      </div>
       {board.error && <Notice error>{board.error}</Notice>}
-      <div className="explorer">
-        <aside className="filter-panel">
+      {error && (
+        <Notice error>
+          {error}{" "}
+          <button
+            className="small"
+            onClick={() => {
+              if (!config)
+                api<Config>("/config")
+                  .then(setConfig)
+                  .catch((e) => setError(e.message));
+              setRetry((n) => n + 1);
+            }}
+          >
+            Retry
+          </button>
+        </Notice>
+      )}
+
+      <div
+        className="explorer"
+        data-view={view}
+        data-filters-open={filtersOpen}
+      >
+        <aside className="filter-panel" id="browse-filters">
           <h2>
             <SlidersHorizontal size={17} />
             Find your plans
           </h2>
           <fieldset>
-            <legend>WHAT ARE YOU INTO?</legend>
+            <legend>Activity types</legend>
             {(
               config?.categories || [
                 "Football",
@@ -248,7 +362,7 @@ export default function Explore() {
             ))}
           </fieldset>
           <fieldset>
-            <legend>WHERE TO?</legend>
+            <legend>Choose an area</legend>
             <label className="field-label" htmlFor="geo-mode">
               Location filter
             </label>
@@ -263,24 +377,19 @@ export default function Explore() {
             </select>
             {filters.geo_mode === "radius" && (
               <>
-                <button className="locate" disabled={locating} onClick={locate}>
-                  <Navigation size={15} />
-                  {locating ? "Finding you…" : "Use my location"}
-                </button>
                 <label className="radius-label" htmlFor="distance">
                   Within <strong>{radius} miles</strong>
                 </label>
                 <input
                   id="distance"
+                  aria-describedby="coverage-distance-note"
                   type="range"
                   min="0.1"
-                  max="50"
+                  max={maxMiles}
                   step="0.1"
                   value={radius}
                   onChange={(e) => {
-                    const value = Number(e.target.value);
-                    setRadius(value);
-                    setFilters((f) => ({ ...f, radius_m: value * 1609.344 }));
+                    chooseRadius(Number(e.target.value));
                   }}
                 />
                 <label className="sr-only" htmlFor="distance-number">
@@ -288,20 +397,23 @@ export default function Explore() {
                 </label>
                 <input
                   id="distance-number"
+                  aria-describedby="coverage-distance-note"
                   type="number"
                   min="0.1"
-                  max="50"
+                  max={maxMiles}
                   step="0.1"
                   value={radius}
                   onChange={(e) => {
                     const n = Number(e.target.value);
-                    if (n >= 0.1 && n <= 50) {
-                      setRadius(n);
-                      setFilters((f) => ({ ...f, radius_m: n * 1609.344 }));
-                    }
+                    if (Number.isFinite(n) && e.target.value !== "")
+                      chooseRadius(n);
                   }}
                 />
-                <small>Or click the map to choose your center.</small>
+                <small id="coverage-distance-note">
+                  Up to {maxMiles} miles from this center. Results stay inside
+                  the green activity coverage boundary.
+                </small>
+                <small>Click the map or Locate me to change your center.</small>
               </>
             )}
             {filters.geo_mode === "polygon" && (
@@ -313,11 +425,6 @@ export default function Explore() {
                   Clear & redraw
                 </button>
               </>
-            )}
-            {geoError && (
-              <p role="status" className="error-text">
-                {geoError}
-              </p>
             )}
           </fieldset>
           <button
@@ -336,28 +443,18 @@ export default function Explore() {
             Check each activity’s eligibility before you go.
           </div>
         </aside>
-        <section className="activities" aria-label="Activities">
+        <section
+          className="activities"
+          aria-label="Activities"
+          aria-busy={loading}
+        >
           <div className="result-heading">
-            <h2>{page?.total ?? "—"} activities</h2>
-            <span>{loading ? "Updating…" : "SORTED BY DATE"}</span>
+            <h2>
+              {page?.total ?? "—"}{" "}
+              {page?.total === 1 ? "activity" : "activities"}
+            </h2>
+            <span>{loading ? "Updating…" : "By date"}</span>
           </div>
-          {error && (
-            <Notice error>
-              {error}{" "}
-              <button
-                className="small"
-                onClick={() => {
-                  if (!config)
-                    api<Config>("/config")
-                      .then(setConfig)
-                      .catch((e) => setError(e.message));
-                  setRetry((n) => n + 1);
-                }}
-              >
-                Retry
-              </button>
-            </Notice>
-          )}
           {!page && loading && <Loading label="Finding your next plan…" />}
           {!loading && page?.total === 0 && (
             <div className="empty">
@@ -369,15 +466,16 @@ export default function Explore() {
               </button>
             </div>
           )}
-          {page?.items.map((e) => (
-            <EventCard
-              key={e.id}
-              event={e}
-              plan={board.plans.find((p) => p.event_id === e.id)}
-              onOpen={() => setSelected(e)}
-              onAdd={(s) => board.move(e, s)}
+          {page && (
+            <EventDayGroups
+              onHighlight={setHoveredActivity}
+              items={page.items}
+              plans={board.plans}
+              partial={page.next_cursor != null}
+              onOpen={setSelected}
+              onAdd={(event, status) => board.move(event, status)}
             />
-          ))}
+          )}
           {page?.next_cursor != null && (
             <button className="load-more" onClick={more} disabled={loading}>
               Load more activities <ArrowRight size={15} />
@@ -388,20 +486,25 @@ export default function Explore() {
             may change.
           </p>
         </section>
-        {config ? (
-          <ActivityMap
-            points={points}
-            config={config}
-            filters={filters}
-            onCenter={(center) => setFilters((f) => ({ ...f, center }))}
-            onPolygon={(polygon) => setFilters((f) => ({ ...f, polygon }))}
-            onSelect={select}
-          />
-        ) : (
-          <div className="map-panel">
-            <Loading label="Opening the map…" />
-          </div>
-        )}
+        <PanelDivider />
+        <div className="discovery-map">
+          {config ? (
+            <ActivityMap
+              hoveredActivity={hoveredActivity}
+              userLocation={userLocation}
+              points={points}
+              config={config}
+              filters={filters}
+              onCenter={chooseCenter}
+              onPolygon={(polygon) => setFilters((f) => ({ ...f, polygon }))}
+              onSelect={select}
+            />
+          ) : (
+            <div className="map-panel">
+              <Loading label="Opening the map…" />
+            </div>
+          )}
+        </div>
       </div>
       {config && (
         <details className="sources-summary">

@@ -101,3 +101,13 @@ def test_jsonld_does_not_publish_script_source_url():
     html = '<script type="application/ld+json">{"@type":"Event","name":"Test","startDate":"2026-10-24T12:00:00-04:00","url":"javascript:alert(1)","location":{"@type":"Place","name":"Arena"}}</script>'
     result = jsonld_events(html, "https://example.org/event")
     assert result[0]["source_urls"] == ["https://example.org/event"]
+
+
+def test_backend_geocoder_uses_independent_provider(monkeypatch):
+    from app.ingestion.geocoding import NominatimGeocoder
+    from app.ingestion.service import Geocoder
+
+    monkeypatch.setattr(NominatimGeocoder, "locate", lambda self, query: (-84.3963, 33.7756))
+    result = Geocoder().resolve({"venue": "Uncached fixture building"})
+    assert result["longitude"] == -84.3963
+    assert result["latitude"] == 33.7756

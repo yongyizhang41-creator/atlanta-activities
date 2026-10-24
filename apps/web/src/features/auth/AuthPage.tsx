@@ -1,5 +1,8 @@
 "use client";
 import Link from "next/link";
+import { motion, useReducedMotion } from "motion/react";
+import CinematicCityBackground from "./CinematicCityBackground";
+import { layoutSpring } from "@/components/motion/variants";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, MapPin, ArrowLeft } from "lucide-react";
@@ -15,6 +18,7 @@ const titles: Record<Mode, string> = {
 };
 export default function AuthPage({ mode }: { mode: Mode }) {
   const router = useRouter();
+  const reduced = useReducedMotion();
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
     [token, setToken] = useState(""),
@@ -89,6 +93,7 @@ export default function AuthPage({ mode }: { mode: Mode }) {
   }[mode];
   return (
     <main className="auth-layout">
+      <CinematicCityBackground />
       <section className="auth-story">
         <Link href="/login" className="brand">
           <span className="brand-symbol">
@@ -97,14 +102,8 @@ export default function AuthPage({ mode }: { mode: Mode }) {
           ATL<span className="brand-slash">/</span>Out
         </Link>
         <div className="auth-copy">
-          <span className="eyebrow">DOWNTOWN · MIDTOWN · GEORGIA TECH</span>
-          <h1>
-            A good week
-            <br />
-            starts with
-            <br />
-            <em>getting out.</em>
-          </h1>
+          <span className="eyebrow">Downtown, Midtown & Georgia Tech</span>
+          <h1>A good week starts with getting out.</h1>
           <p>
             The game. The parade. The plans you actually make.
             <br />
@@ -123,9 +122,13 @@ export default function AuthPage({ mode }: { mode: Mode }) {
         </span>
       </section>
       <section className="auth-form">
-        <div>
+        <motion.div
+          initial={{ opacity: 0, y: reduced ? 0 : 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={reduced ? { duration: 0.1 } : layoutSpring}
+        >
           <span className="eyebrow">
-            {mode === "register" ? "JOIN THE CITY" : "WELCOME TO ATL / OUT"}
+            {mode === "register" ? "Join the city" : "Welcome to ATL / Out"}
           </span>
           <h2>{titles[mode]}</h2>
           <p className="muted">
@@ -216,7 +219,7 @@ export default function AuthPage({ mode }: { mode: Mode }) {
             <br />
             <Link href="/privacy">Privacy & data</Link>
           </p>
-        </div>
+        </motion.div>
       </section>
     </main>
   );

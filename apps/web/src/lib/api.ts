@@ -9,10 +9,10 @@ export class ApiError extends Error {
     super(message);
   }
 }
-export async function api<T>(
+export async function apiResponse(
   path: string,
   options: RequestInit = {},
-): Promise<T> {
+): Promise<Response> {
   const response = await fetch("/api" + path, {
     ...options,
     credentials: "same-origin",
@@ -22,10 +22,8 @@ export async function api<T>(
       ...options.headers,
     },
   });
-  const data = await response
-    .json()
-    .catch(() => ({ message: "The server could not respond. Try again." }));
   if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
     if (
       response.status === 401 &&
       !path.startsWith("/auth/") &&
@@ -39,6 +37,14 @@ export async function api<T>(
       response.status,
     );
   }
+  return response;
+}
+export async function api<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const response = await apiResponse(path, options);
+  const data = await response.json();
   if (data.csrf) csrf = data.csrf;
   return data as T;
 }

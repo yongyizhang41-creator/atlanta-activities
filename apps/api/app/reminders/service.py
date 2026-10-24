@@ -13,12 +13,12 @@ def validate_reminder_time(remind_at: datetime, starts_at: datetime, now: dateti
 
 
 def cancel_pending_reminder(db, user_id, event_id, reason):
-    reminder = db.scalar(
+    for reminder in db.scalars(
         select(Reminder).where(Reminder.user_id == user_id, Reminder.event_id == event_id).with_for_update()
-    )
-    if reminder and reminder.status in ("pending", "retry", "failed"):
-        reminder.status = "cancelled"
-        reminder.error = reason
+    ):
+        if reminder.status in ("pending", "retry", "failed"):
+            reminder.status = "cancelled"
+            reminder.error = reason
 
 
 def invalidate_event_reminders(db, event_id, reason):

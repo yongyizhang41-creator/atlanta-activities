@@ -70,3 +70,14 @@ def test_drawn_polygon_filters_on_boundary(signed_in, db):
     r = signed_in.post("/api/events/search", json={"geo_mode": "polygon", "polygon": polygon})
     assert r.status_code == 200, r.text
     assert {e["title"] for e in r.json()["items"]} == {"Inside", "Boundary"}
+
+
+def test_nearby_rejects_distance_beyond_useful_coverage(signed_in, db):
+    add_event(db)
+    payload = {"geo_mode": "radius", "center": [-84.3963, 33.7756], "radius_m": 50 * 1609.344}
+    assert signed_in.post("/api/events/search", json=payload).status_code == 422
+    payload["radius_m"] = 1 * 1609.344
+    add_event(db, title="Beyond coverage", lat=33.81, lon=-84.3963)
+    result = signed_in.post("/api/events/search", json=payload)
+    assert result.status_code == 200
+    assert [e["title"] for e in result.json()["items"]] == ["Campus game"]

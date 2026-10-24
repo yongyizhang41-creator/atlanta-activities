@@ -1,4 +1,6 @@
 "use client";
+import { motion, useReducedMotion } from "motion/react";
+import { cardVariants } from "@/components/motion/variants";
 import { useEffect, useState } from "react";
 import {
   DndContext,
@@ -7,6 +9,7 @@ import {
   useSensor,
   useSensors,
   useDroppable,
+  useDndContext,
   DragEndEvent,
 } from "@dnd-kit/core";
 import {
@@ -34,7 +37,7 @@ import { Loading, Notice } from "@/components/ui";
 import EventCard from "@/features/explore/EventCard";
 import EventDetails from "@/features/explore/EventDetails";
 import ReminderDialog from "./ReminderDialog";
-import { fullTime } from "@/lib/time";
+import { fullTime, planExpiry } from "@/lib/time";
 function Card({
   plan,
   onOpen,
@@ -129,18 +132,23 @@ function Card({
             onClick={onReminder}
           >
             <Bell size={13} />
-            {plan.has_sent_reminder
-              ? "Sent"
-              : plan.reminder?.status === "pending"
-                ? "Edit reminder"
-                : "Remind me"}
+            {plan.reminders?.length ? "Manage reminders" : "Remind me"}
           </button>
         )}
       </div>
-      {plan.reminder?.status === "pending" && (
+      {plan.reminders?.some((r) => ["pending", "retry"].includes(r.status)) && (
         <p className="reminder-summary">
           <Bell size={12} />
-          {fullTime(plan.reminder.remind_at)}
+          {
+            plan.reminders.filter((r) =>
+              ["pending", "retry"].includes(r.status),
+            ).length
+          }{" "}
+          upcoming · Next{" "}
+          {fullTime(
+            plan.reminders.find((r) => ["pending", "retry"].includes(r.status))!
+              .remind_at,
+          )}
         </p>
       )}
     </div>
@@ -156,46 +164,59 @@ function Column({
   children: React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
+  const { active } = useDndContext();
+  const reduced = useReducedMotion();
   return (
     <section
       ref={setNodeRef}
       aria-label={status === "going" ? "Going activities" : "Maybe activities"}
-      className={"board-column " + (isOver ? "drag-over" : "")}
+      className="board-column-slot"
     >
-      <header>
-        <span className={"column-icon " + status}>
-          {status === "going" ? (
-            <CheckCircle2 size={19} />
-          ) : (
-            <Bookmark size={19} />
-          )}
-        </span>
-        <div>
-          <h2>
-            {status === "going" ? "Going" : "Maybe"}
-            <span>{items.length}</span>
-          </h2>
-          <p>
-            {status === "going"
-              ? "The plans you’re making happen."
-              : "Good ideas. No commitment yet."}
-          </p>
-        </div>
-      </header>
-      <SortableContext
-        items={items.map((p) => p.event_id)}
-        strategy={verticalListSortingStrategy}
+      <motion.div
+        className={"board-column " + (isOver ? "drag-over" : "")}
+        data-dragging={!!active}
+        variants={cardVariants}
+        initial="rest"
+        animate={
+          active ? { y: 0, scale: 1, transition: { duration: 0 } } : "rest"
+        }
+        whileHover={!reduced && !active ? "hover" : undefined}
       >
-        {children}
-      </SortableContext>
-      {!items.length && (
-        <div className="column-empty">
-          {status === "going"
-            ? "Ready to commit? Move an activity here."
-            : "Save a few possibilities from Explore."}
-        </div>
-      )}
-      <div className="drop-zone">Drop an activity here</div>
+        <header>
+          <span className={"column-icon " + status}>
+            {status === "going" ? (
+              <CheckCircle2 size={19} />
+            ) : (
+              <Bookmark size={19} />
+            )}
+          </span>
+          <div>
+            <h2>
+              {status === "going" ? "Going" : "Maybe"}
+              <span>{items.length}</span>
+            </h2>
+            <p>
+              {status === "going"
+                ? "The plans you’re making happen."
+                : "Good ideas. No commitment yet."}
+            </p>
+          </div>
+        </header>
+        <SortableContext
+          items={items.map((p) => p.event_id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {children}
+        </SortableContext>
+        {!items.length && (
+          <div className="column-empty">
+            {status === "going"
+              ? "Ready to commit? Move an activity here."
+              : "Save a few possibilities from Explore."}
+          </div>
+        )}
+        <div className="drop-zone">Drop an activity here</div>
+      </motion.div>
     </section>
   );
 }
@@ -216,6 +237,36 @@ export default function Board() {
       .catch((e) => board.setError(e.message))
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible")
+        board.reload().catch(() => {});
+    };
+    const interval = window.setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []); // eslint-disable-line
+  useEffect(() => {
+    if (reminder && !board.plans.some((p) => p.event_id === reminder.event_id))
+      setReminder(null);
+    if (selected && !board.plans.some((p) => p.event_id === selected.id))
+      setSelected(null);
+    const now = Date.now();
+    const ends = board.plans
+      .map((p) => planExpiry(p.event.starts_at, p.event.ends_at))
+      .filter((end) => end > now);
+    if (!ends.length) return;
+    const timer = window.setTimeout(
+      () => board.reload().catch(() => {}),
+      Math.min(2147483647, Math.min(...ends) - now + 250),
+    );
+    return () => window.clearTimeout(timer);
+  }, [board.plans]); // eslint-disable-line
   async function dragEnd(e: DragEndEvent) {
     const { active, over } = e;
     if (!over || board.busy) return;
@@ -255,15 +306,15 @@ export default function Board() {
     <>
       <section className="page-intro">
         <div>
-          <span className="eyebrow">YOUR ATLANTA, PLANNED</span>
+          <span className="eyebrow">Your saved activities</span>
           <h1>
             A little less maybe.
-            <br />
-            <em>A little more out.</em>
+            <br />A little more out.
           </h1>
           <p>
             Drag activities between columns, or use the move buttons. Only Going
-            gets reminders.
+            gets reminders. Ended or cancelled activities are removed
+            automatically.
           </p>
         </div>
         <div className="plan-stats">

@@ -13,3 +13,11 @@ First public rollout requires: Google OIDC real callback, a real OpenAI response
 ## Reminder dispatch semantics
 
 The committed `submitting` transition is the point after which sending cannot reliably be recalled. Moving a plan before this transition suppresses delivery. Moving it afterward cannot recall already-submitted mail. A provider timeout uses the identical persisted payload and key during a 23-hour retry window; outside that window it fails closed instead of risking a second reminder. Sent history remains after removing/readding a card. Only verified emails receive reminders. A stopped worker may send late reminders before start, never after start.
+
+## Multiple reminders (2026-10-23)
+
+Migration 0002 removes the per-user/event unique constraint without deleting existing schedules or delivery history. Back up before upgrade. Each reminder has its own immutable delivery identity once submitted; retries reuse that item's key and payload. Users can create additional reminders even after previous ones were sent. Pending, never-submitted items may be edited repeatedly or cancelled individually. Moving to Maybe/removing a plan cancels all cancellable schedules. Submitted/sent history remains; uncertain deliveries cannot be reset to a new key by editing. Downgrade refuses when multiple records exist rather than deleting history.
+
+## Automatic plan cleanup
+
+Worker ticks and per-user board reads prune plans for cancelled events or events with a confirmed ends_at at/before server time. Cleanup uses the same user/event/reminder lock ordering as delivery and cancels eligible reminders before removing a plan. It preserves event facts and delivery history. Unknown ends_at expires saved plans at the next Eastern midnight after the start date; it does not modify the event end-time field. Open boards poll every 30 seconds and refresh on focus, with a timer for the nearest known end. Source cancellation detection still depends on ingestion freshness.

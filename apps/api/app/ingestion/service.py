@@ -3,7 +3,7 @@ import logging
 import re
 import time
 from pathlib import Path
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
@@ -11,7 +11,6 @@ from bs4 import BeautifulSoup
 from shapely.geometry import Point, shape
 from sqlalchemy import select, text
 
-from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.locks import exclusive_job
 from app.events.service import COVERAGE
@@ -140,26 +139,10 @@ class Geocoder:
         if cached:
             event.update(latitude=cached[1], longitude=cached[0])
             return event
-        if not settings.maptiler_geocoding_key:
-            raise ValueError("Reliable coordinates unavailable; configure MAPTILER_GEOCODING_KEY")
-        with httpx.Client(timeout=15) as client:
-            response = client.get(
-                "https://api.maptiler.com/geocoding/"
-                + quote(query + " Atlanta Georgia USA", safe="")
-                + ".json",
-                params={
-                    "key": settings.maptiler_geocoding_key,
-                    "limit": 1,
-                    "bbox": "-84.42,33.74,-84.36,33.81",
-                },
-            )
-            response.raise_for_status()
-            features = response.json().get("features", [])
-        if not features:
-            raise ValueError("Could not locate event")
-        lon, lat = features[0]["geometry"]["coordinates"]
+        from app.ingestion.geocoding import NominatimGeocoder
+
+        lon, lat = NominatimGeocoder().locate(query)
         event.update(latitude=lat, longitude=lon)
-        # Persist only where the account's geocoding licence permits permanent storage.
         return event
 
 

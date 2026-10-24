@@ -1,8 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Send, Trash2, Sparkles } from "lucide-react";
-import { api, send } from "@/lib/api";
+import { api, apiResponse, send } from "@/lib/api";
 import { Notice } from "@/components/ui";
+import { readChatStream } from "@/lib/chat-stream";
+import { createTypewriter } from "@/lib/typewriter";
+import AssistantMessage from "./AssistantMessage";
 export default function ActivityChat({ eventId }: { eventId: string }) {
   const [messages, setMessages] = useState<{ role: string; content: string }[]>(
       [],
@@ -11,6 +14,19 @@ export default function ActivityChat({ eventId }: { eventId: string }) {
     [session, setSession] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const playback = useRef<ReturnType<typeof createTypewriter> | null>(null);
+  const request = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      request.current?.abort();
+      playback.current?.cancel();
+    },
+    [eventId],
+  );
+  const scrollEnd = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    scrollEnd.current?.scrollIntoView({ block: "nearest" });
+  }, [messages, busy]);
   useEffect(() => {
     let active = true;
     api<{
@@ -34,22 +50,48 @@ export default function ActivityChat({ eventId }: { eventId: string }) {
     if (!text.trim() || busy) return;
     setBusy(true);
     setError("");
-    try {
-      const d = await api<{ session_id: string; message: string }>(
-        "/events/" + eventId + "/chat",
-        send("POST", { message: text, session_id: session }),
+    const question = text.trim();
+    setText("");
+    const previous = messages;
+    setMessages([
+      ...previous,
+      { role: "user", content: question },
+      { role: "assistant", content: "" },
+    ]);
+    const controller = new AbortController();
+    request.current = controller;
+    const writer = createTypewriter((content) => {
+      setMessages((current) =>
+        current.map((m, i) =>
+          i === previous.length + 1 ? { ...m, content } : m,
+        ),
       );
-      setSession(d.session_id);
-      setMessages((m) => [
-        ...m,
-        { role: "user", content: text },
-        { role: "assistant", content: d.message },
-      ]);
-      setText("");
+    });
+    playback.current = writer;
+    try {
+      const response = await apiResponse("/events/" + eventId + "/chat", {
+        ...send("POST", {
+          message: question,
+          session_id: session,
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+      if (!response.body)
+        throw new Error("Streaming is unavailable. Please try again.");
+      await readChatStream(response.body, (event) => {
+        if (event.type === "done") setSession(event.session_id);
+        if (event.type === "delta") writer.push(event.text);
+      });
+      await writer.drain();
     } catch (e) {
+      if (controller.signal.aborted) return;
       setError((e as Error).message);
+      setMessages(previous);
+      setText(question);
     } finally {
-      setBusy(false);
+      writer.cancel();
+      if (!controller.signal.aborted) setBusy(false);
     }
   }
   return (
@@ -94,9 +136,18 @@ export default function ActivityChat({ eventId }: { eventId: string }) {
         {messages.map((m, i) => (
           <div key={i} className={"message " + m.role}>
             <small>{m.role === "user" ? "You" : "Activity assistant"}</small>
-            <p>{m.content}</p>
+            {m.role === "assistant" ? (
+              m.content ? (
+                <AssistantMessage content={m.content} />
+              ) : (
+                <p role="status">Thinking…</p>
+              )
+            ) : (
+              <p>{m.content}</p>
+            )}
           </div>
         ))}
+        <div ref={scrollEnd} />
       </div>
       {error && <Notice error>{error}</Notice>}
       <form noValidate onSubmit={submit} className="chat-input">

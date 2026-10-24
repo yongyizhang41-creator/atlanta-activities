@@ -9,7 +9,7 @@ from app.core.database import get_session
 from app.core.errors import fail
 from app.core.security import lock_user, require_user
 from app.models import Plan, User
-from app.plans.service import move_plan, plan_dto
+from app.plans.service import move_plan, plan_dto, prune_inactive_plans
 from app.reminders.service import cancel_pending_reminder
 
 router = APIRouter(prefix="/api/me/plans")
@@ -33,6 +33,7 @@ class Order(BaseModel):
 
 @router.get("")
 def board(user: User = Depends(require_user), db: Session = Depends(get_session)):
+    prune_inactive_plans(db, user.id)
     plans = db.scalars(select(Plan).where(Plan.user_id == user.id).order_by(Plan.position, Plan.id)).all()
     return {"items": [plan_dto(db, p) for p in plans]}
 

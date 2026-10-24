@@ -1,8 +1,9 @@
+from contextlib import nullcontext
 from datetime import timedelta
 from html import escape
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.config import settings
 from app.core.locks import exclusive_job
@@ -111,10 +112,15 @@ def deliver_due_reminders(batch_size=100):
     return count
 
 
-def deliver_auth_mail():
+def deliver_auth_mail(db=None, mail=gateway):
     from app.core.database import SessionLocal
 
-    with SessionLocal() as db:
+    with nullcontext(db) if db is not None else SessionLocal() as db:
+        db.execute(
+            update(MailJob)
+            .where(MailJob.status == "pending", MailJob.created_at <= utcnow() - timedelta(minutes=60))
+            .values(status="expired")
+        )
         jobs = db.scalars(
             select(MailJob)
             .where(MailJob.status == "pending", MailJob.attempts < 5)
@@ -122,14 +128,17 @@ def deliver_auth_mail():
             .limit(10)
         ).all()
         for job in jobs:
-            if utcnow() - job.created_at > timedelta(minutes=60):
-                job.status = "expired"
-                continue
+            if not job.payload.get("from") and not job.attempts and settings.mail_from:
+                job.payload = {**job.payload, "from": settings.mail_from}
             try:
-                gateway.send(job.payload, "auth/" + job.id)
-            except (httpx.HTTPError, EmailUnavailable):
+                mail.send(job.payload, "auth/" + job.id)
+            except EmailUnavailable:
+                job.error = "Email delivery is not configured"
+            except httpx.HTTPError:
                 job.attempts += 1
                 job.error = "Email provider unavailable"
+                if job.attempts >= 5:
+                    job.status = "failed"
             else:
                 job.status = "sent"
         db.commit()

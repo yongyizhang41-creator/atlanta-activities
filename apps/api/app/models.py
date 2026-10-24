@@ -98,7 +98,6 @@ class Plan(Base):
 class Reminder(Base):
     __tablename__ = "reminders"
     __table_args__ = (
-        UniqueConstraint("user_id", "event_id"),
         Index("ix_reminder_due", "status", "remind_at"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)

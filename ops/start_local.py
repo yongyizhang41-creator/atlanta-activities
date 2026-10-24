@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import signal
+import sys
 import subprocess
 import time
 import urllib.request
@@ -30,6 +31,13 @@ def run():
         ('web',['npm','run','dev'],ROOT/'apps/web','http://localhost:3000/login'),
         ('worker',[str(PY),'-m','app.worker.main','run'],ROOT/'apps/api',None)]
     for name,command,cwd,url in commands:
+        if name == 'worker':
+            sys.path.insert(0, str(ROOT/'apps/api'))
+            from app.core.locks import exclusive_job
+            with exclusive_job('worker:main') as available:
+                if not available:
+                    print('worker: already running; leaving that process alone.')
+                    continue
         if url and reachable(url):print(f'{name}: already running; leaving that process alone.');continue
         log=(LOCAL/f'{name}.log').open('a');handles.append(log)
         child=subprocess.Popen(command,cwd=cwd,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)

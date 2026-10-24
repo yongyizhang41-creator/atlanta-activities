@@ -2,6 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.events.coverage import maximum_radius_m
 from app.events.spatial import validate_polygon
 
 CATEGORIES = ["Football", "Sports", "Parade", "Music", "Arts", "Festival", "Georgia Tech", "Community"]
@@ -26,8 +27,11 @@ class EventFilters(BaseModel):
                 raise ValueError("Choose a radius and center; clear the polygon")
             if not -180 <= self.center[0] <= 180 or not -90 <= self.center[1] <= 90:
                 raise ValueError("Invalid center")
-            if not 160.9344 <= self.radius_m <= 80467.2:
-                raise ValueError("Choose 0.1–50 miles")
+            maximum = maximum_radius_m(self.center)
+            if not 160.9344 <= self.radius_m <= maximum + 0.001:
+                raise ValueError(
+                    f"Choose 0.1–{maximum / 1609.344:.1f} miles; search is limited to activity coverage"
+                )
         elif self.geo_mode == "polygon":
             if self.center is not None or self.radius_m is not None or not self.polygon:
                 raise ValueError("Choose a polygon without a radius")

@@ -30,7 +30,7 @@ export default function Page() {
       <p>
         Account verification, password reset and requested reminder messages are
         sent through the configured email provider. Each Going activity supports
-        one reminder. Once submitted, email cannot be recalled.
+        multiple email reminders. Once submitted, email cannot be recalled.
       </p>
       <h2>Activity data</h2>
       <p>
@@ -43,8 +43,10 @@ export default function Page() {
       <p>
         Google handles optional Google sign-in. OpenAI handles assistant
         requests. Resend handles email. Maps use OpenFreeMap, or MapTiler when
-        configured. Provider credentials and deployment configuration are
-        controlled by the site operator.
+        configured. Public event venue names and addresses are sent to
+        OpenStreetMap's Nominatim service for geocoding and cached locally. Your
+        device location is not sent to that service. Provider credentials and
+        deployment configuration are controlled by the site operator.
       </p>
     </main>
   );

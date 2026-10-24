@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { api, ApiError, send } from "@/lib/api";
 import type { Activity, Plan, Conflict } from "@/lib/types";
 import { Modal, Notice } from "@/components/ui";
@@ -16,9 +16,11 @@ export function usePlans() {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [challenge, setChallenge] = useState<Challenge | null>(null);
+  const reloadGeneration = useRef(0);
   const reload = async () => {
+    const generation = ++reloadGeneration.current;
     const d = await api<{ items: Plan[] }>("/me/plans");
-    setPlans(d.items);
+    if (generation === reloadGeneration.current) setPlans(d.items);
   };
   async function move(
     event: Activity,

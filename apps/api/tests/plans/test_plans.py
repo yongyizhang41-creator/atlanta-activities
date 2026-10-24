@@ -86,7 +86,7 @@ def test_maybe_cancels_reminder_and_sent_history_survives(signed_in, db):
             f"/api/me/plans/{a.id}/reminder",
             json={"remind_at": (a.starts_at - timedelta(hours=1)).isoformat()},
         ).status_code
-        == 409
+        == 200
     )
 
 

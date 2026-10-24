@@ -1,0 +1,3 @@
+# Weekend journal — approved design
+
+Approved in chat on 2026-10-23. Keep the city magazine hero. Group activities by Eastern calendar day with weekday/date and real loaded activity counts. Use a fine line and orange dots to indicate start-time order, not durations or conflict judgments. Journal cards emphasize start time rather than repeating dates; preserve end times, unknown-end labels, eligibility, cancellation/expiry, details and plan actions. Widen the desktop content area and readable typography, use a light stone filter surface and white cards, retain a sticky viewport-sized map, and keep mobile List/Map controls and themes. No API, sorting semantics, authentication, reminder or geographic-policy changes. No fabricated content or photographs.

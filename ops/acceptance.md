@@ -8,7 +8,7 @@
 | Activities with location, radius and drawn area | PostGIS query, polygon validation, MapLibre | Rendered map plus polygon/clear/manual-radius interactions passed in real Chrome |
 | Maybe/Going board, drag and button alternatives | Board.tsx, plans service, Chrome journey | Button moves, pointer drag and persistence passed in Chrome; keyboard buttons available |
 | Schedule conflict detection + confirm | plans tests + independent concurrent DB test, Chrome | Tested |
-| One reminder and strict valid time | reminder API, DST UI tests, Chrome settings | Tested locally |
+| Multiple reminders, repeat editing and strict valid times | Collection API, per-reminder delivery, DST rules, Chrome management journey | Supersedes one-reminder requirement; independently scheduled emails and persisted edits tested |
 | Email delivery, cancellation, retry | delivery and uncertainty tests, independent code review | Local contract tested; real provider send required |
 | Activity AI conversation | chat ownership/config tests, Chrome missing-provider behavior | Implemented; real model reply required |
 | Automatic collection, no Admin | GT/arena/venue adapters, source run logs | Arena: 7 and MBS: 1 real event; Downtown and campus need geocoding |

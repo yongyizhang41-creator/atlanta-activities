@@ -56,8 +56,9 @@ test("complete activity, map, conflict and reminder journey", async ({
   await page
     .getByRole("button", { name: "Save reminder", exact: true })
     .click();
+  await page.getByRole("button", { name: "Close dialog" }).click();
   await expect(
-    plan.getByRole("button", { name: "Edit reminder" }),
+    plan.getByRole("button", { name: "Manage reminders" }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Explore", exact: true }).click();
   const card2 = page.locator("article").filter({
@@ -95,6 +96,19 @@ test("complete activity, map, conflict and reminder journey", async ({
     .getByRole("button")
     .first()
     .click();
+  // Exercise the unavailable-provider UI independently of real local credentials.
+  await page.route("**/api/events/*/chat", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        code: "unavailable",
+        message: "AI is not configured",
+        details: {},
+      }),
+    });
+  });
   await page.getByLabel("Question about activity").fill("Who can attend?");
   await page.getByRole("button", { name: "Send question" }).click();
   await expect(page.locator(".notice[role=alert]")).toContainText(

@@ -16,7 +16,9 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     mail_from: str = ""
     maptiler_key: str = ""
-    maptiler_geocoding_key: str = ""
+    maptiler_geocoding_key: str = ""  # Legacy; backend lookup no longer uses MapTiler.
+    nominatim_url: str = "https://nominatim.openstreetmap.org/search"
+    geocoding_cache_path: str = str(Path(__file__).resolve().parents[4] / ".local/geocoding.sqlite")
     map_style_url: str = "https://tiles.openfreemap.org/styles/positron"
     ai_daily_limit: int = 100
 

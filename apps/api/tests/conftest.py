@@ -1,5 +1,10 @@
 import os
 
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 # All tests, including concurrency tests, use a distinct database.
 os.environ["DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+psycopg://atlanta:atlanta@127.0.0.1:55432/atlanta_test"
@@ -7,10 +12,18 @@ os.environ["DATABASE_URL"] = os.environ.get(
 if not os.environ["DATABASE_URL"].split("?", 1)[0].endswith("_test"):
     raise RuntimeError("TEST_DATABASE_URL must point to a database ending in _test")
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+# Real provider credentials must never be used by automated tests.
+for name in (
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "RESEND_API_KEY",
+    "MAIL_FROM",
+    "MAPTILER_KEY",
+    "MAPTILER_GEOCODING_KEY",
+):
+    os.environ[name] = ""
 
 
 @pytest.fixture

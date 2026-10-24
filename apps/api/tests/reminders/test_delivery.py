@@ -123,3 +123,28 @@ def test_missing_email_configuration_does_not_create_uncertain_delivery(db):
     assert deliver_one(db, r.id, MissingMail()) == "retry"
     assert r.first_attempt_at is None
     assert r.delivery_payload is None
+
+
+def test_exhausted_expired_auth_mail_is_marked_expired(db):
+    from app.models import MailJob
+    from app.reminders.delivery import deliver_auth_mail
+
+    user = User(email="old-auth@example.com")
+    db.add(user)
+    db.flush()
+    job = MailJob(
+        user_id=user.id,
+        payload={"from": "", "to": ["old-auth@example.com"]},
+        attempts=5,
+        created_at=utcnow() - timedelta(hours=2),
+    )
+    db.add(job)
+    db.flush()
+
+    class NoSend:
+        def send(self, payload, key):
+            raise AssertionError("Expired authentication mail must not send")
+
+    deliver_auth_mail(db=db, mail=NoSend())
+    db.refresh(job)
+    assert job.status == "expired"

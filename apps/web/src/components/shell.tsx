@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { api, send } from "@/lib/api";
 import type { User } from "@/lib/types";
+import CityBackdrop from "./motion/CityBackdrop";
 import { Loading, Notice } from "./ui";
 const Auth = createContext<{ user: User; reload: () => Promise<void> }>({
   user: {} as User,
@@ -56,6 +57,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     );
   return (
     <Auth.Provider value={{ user, reload }}>
+      <CityBackdrop />
       <header className="topbar">
         <Link href="/explore" className="brand">
           <span className="brand-symbol">

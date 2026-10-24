@@ -5,7 +5,7 @@ import { Modal, Field, Notice } from "@/components/ui";
 import { api, send } from "@/lib/api";
 import { fullTime, resolveLocalTime, zone } from "@/lib/time";
 import { useAuth } from "@/components/shell";
-import type { Plan } from "@/lib/types";
+import type { Plan, Reminder } from "@/lib/types";
 export default function ReminderDialog({
   plan,
   onClose,
@@ -16,6 +16,29 @@ export default function ReminderDialog({
   onSaved: () => Promise<void>;
 }) {
   const { user } = useAuth();
+  const [reminders, setReminders] = useState<Reminder[]>(plan.reminders || []);
+  const currentReminders = reminders.filter(
+    (r) => r.status !== "sent" && r.status !== "cancelled",
+  );
+  const [editing, setEditing] = useState<string | null>(null);
+  const base = "/me/plans/" + plan.event_id + "/reminders";
+  async function refresh() {
+    setReminders(await api<Reminder[]>(base));
+    await onSaved();
+  }
+  function edit(reminder: Reminder) {
+    setEditing(reminder.id);
+    setSelection("custom");
+    const date = DateTime.fromISO(reminder.remind_at).setZone(zone);
+    const localTime = date.toFormat("yyyy-MM-dd'T'HH:mm");
+    setLocal(localTime);
+    setOffset(
+      resolveLocalTime(localTime).find(
+        (c) => DateTime.fromISO(c.iso).setZone(zone).offset === date.offset,
+      )?.iso || "",
+    );
+    setError("");
+  }
   const [selection, setSelection] = useState("60"),
     [local, setLocal] = useState(""),
     [offset, setOffset] = useState(""),
@@ -27,11 +50,6 @@ export default function ReminderDialog({
   );
   const start = new Date(plan.event.starts_at).getTime(),
     now = Date.now();
-  const sent =
-    plan.has_sent_reminder ||
-    ["submitting", "unknown", "unconfirmed"].includes(
-      plan.reminder?.status || "",
-    );
   async function save() {
     setError("");
     let value = "";
@@ -61,20 +79,23 @@ export default function ReminderDialog({
         "/me/plans/" + plan.event_id + "/reminder",
         send("PUT", { remind_at: value }),
       );
-      await onSaved();
-      onClose();
+      setEditing(null);
+      setSelection("60");
+      setLocal("");
+      setOffset("");
+      await refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
-  async function cancel() {
+  async function cancel(id: string) {
     setBusy(true);
     try {
-      await api("/me/plans/" + plan.event_id + "/reminder", send("DELETE"));
-      await onSaved();
-      onClose();
+      await api(base + "/" + id, send("DELETE"));
+      if (editing === id) setEditing(null);
+      await refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -93,16 +114,45 @@ export default function ReminderDialog({
         Starts <strong>{fullTime(plan.event.starts_at)}</strong>
       </p>
       <p className="muted">
-        One email reminder, sent to <strong>{user.email}</strong>.
+        Each scheduled reminder sends one email to <strong>{user.email}</strong>
+        .
       </p>
-      {plan.reminder && (
-        <Notice>
-          Reminder: {plan.reminder.status.replaceAll("_", " ")}
-          {plan.reminder.status === "pending"
-            ? " · " + fullTime(plan.reminder.remind_at)
-            : ""}
-          {plan.reminder.error && <p>{plan.reminder.error}</p>}
-        </Notice>
+      <p className="muted">
+        One upcoming reminder per activity. Saving a new time replaces the
+        previous reminder. Your email sends only at the latest saved time.
+      </p>
+      {currentReminders.length > 0 && (
+        <ul className="reminder-list" aria-label="Scheduled reminders">
+          {currentReminders.map((r) => (
+            <li key={r.id}>
+              <div>
+                <strong>{fullTime(r.remind_at)}</strong>
+                <span className="muted">{r.status.replaceAll("_", " ")}</span>
+                {r.error && <p className="muted">{r.error}</p>}
+              </div>
+              {r.editable && (
+                <div className="reminder-row-actions">
+                  <button
+                    className="small"
+                    disabled={busy}
+                    onClick={() => edit(r)}
+                    aria-label={"Edit reminder at " + fullTime(r.remind_at)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="small"
+                    disabled={busy}
+                    onClick={() => cancel(r.id)}
+                    aria-label={"Cancel reminder at " + fullTime(r.remind_at)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
       {!user.verified && (
         <Notice error>
@@ -110,10 +160,14 @@ export default function ReminderDialog({
         </Notice>
       )}
       {error && <Notice error>{error}</Notice>}
-      {!sent && (
+      {
         <>
           <fieldset className="reminder-options">
-            <legend>Remind me before it starts</legend>
+            <legend>
+              {editing
+                ? "Edit reminder time"
+                : "Choose a reminder before it starts"}
+            </legend>
             {[
               ["1440", "1 day"],
               ["180", "3 hours"],
@@ -174,9 +228,16 @@ export default function ReminderDialog({
             </>
           )}
           <div className="dialog-actions">
-            {plan.reminder?.status === "pending" && (
-              <button disabled={busy} onClick={cancel}>
-                Cancel reminder
+            {editing && (
+              <button
+                disabled={busy}
+                onClick={() => {
+                  setEditing(null);
+                  setSelection("60");
+                  setError("");
+                }}
+              >
+                Stop editing
               </button>
             )}
             <button
@@ -190,17 +251,15 @@ export default function ReminderDialog({
               }
               onClick={save}
             >
-              {busy ? "Saving…" : "Save reminder"}
+              {busy ? "Saving…" : editing ? "Save changes" : "Save reminder"}
             </button>
           </div>
         </>
-      )}
-      {sent && (
-        <p>
-          This activity’s single reminder has already been sent or submitted.
-          Another reminder cannot be scheduled.
-        </p>
-      )}
+      }
+      <p className="muted">
+        Emails already sent or submitted cannot be recalled. Past and cancelled
+        reminders are hidden here.
+      </p>
     </Modal>
   );
 }

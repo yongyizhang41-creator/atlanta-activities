@@ -2,6 +2,7 @@ import json
 
 import httpx
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/api")
 class ChatInput(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     session_id: str | None = None
+    stream: bool = False
 
 
 @router.get("/events/{event_id}/chats")
@@ -74,6 +76,53 @@ def ask(
     )
     inputs = [{"role": m["role"], "content": m["content"][:4000]} for m in history]
     inputs.append({"role": "user", "content": body.message})
+    if body.stream:
+        def generate():
+            nonlocal chat
+            def frame(data):
+                return "data: " + json.dumps(data, ensure_ascii=False) + "\n\n"
+            answer = ""
+            completed = False
+            try:
+                with httpx.Client(timeout=45) as client:
+                    with client.stream(
+                        "POST", "https://api.openai.com/v1/responses",
+                        headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                        json={"model": settings.openai_model, "instructions": instructions,
+                              "input": inputs, "max_output_tokens": 800, "store": False,
+                              "stream": True},
+                    ) as response:
+                        response.raise_for_status()
+                        for line in response.iter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            payload = json.loads(line[6:])
+                            kind = payload.get("type")
+                            if kind == "response.output_text.delta":
+                                delta = payload["delta"]
+                                answer += delta
+                                yield frame({"type": "delta", "text": delta})
+                            elif kind == "response.completed":
+                                completed = True
+                            elif kind in {"error", "response.failed", "response.incomplete"}:
+                                raise ValueError("Generation failed")
+                if not completed or not answer:
+                    raise ValueError("Incomplete response")
+                if not chat:
+                    chat = Chat(user_id=user.id, event_id=event_id, messages=[])
+                    db.add(chat)
+                chat.messages = (history + [
+                    {"role": "user", "content": body.message},
+                    {"role": "assistant", "content": answer},
+                ])[-40:]
+                db.flush()
+                db.commit()
+                yield frame({"type": "done", "session_id": chat.id})
+            except (httpx.HTTPError, ValueError, KeyError):
+                yield frame({"type": "error", "message":
+                             "The activity assistant could not finish. Try again or check the source."})
+        return StreamingResponse(generate(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
     try:
         with httpx.Client(timeout=45) as client:
             response = client.post(

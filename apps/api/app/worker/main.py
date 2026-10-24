@@ -8,9 +8,11 @@ from threading import Thread
 from sqlalchemy import text
 
 from app.core.database import SessionLocal
+from app.core.locks import exclusive_job
 from app.events.time import utcnow
 from app.ingestion.service import ingest_all
 from app.models import WorkerState
+from app.plans.service import prune_all_inactive_plans
 from app.reminders.delivery import deliver_auth_mail, deliver_due_reminders
 
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +21,7 @@ logger = logging.getLogger("worker")
 
 
 def tick():
+    prune_all_inactive_plans()
     deliver_due_reminders()
     deliver_auth_mail()
     with SessionLocal() as db:
@@ -55,14 +58,23 @@ def main():
         deliver_due_reminders()
         deliver_auth_mail()
         return
-    while True:
-        try:
-            tick()
-        except Exception:
-            logger.exception("Worker tick failed")
-        if args.once:
-            return
-        time.sleep(60)
+    run_worker_loop(once=args.once)
+
+
+def run_worker_loop(once=False, tick_fn=None):
+    tick_fn = tick_fn or tick
+    with exclusive_job("worker:main") as acquired:
+        if not acquired:
+            logger.info("A worker is already running for this database; exiting this duplicate.")
+            return False
+        while True:
+            try:
+                tick_fn()
+            except Exception:
+                logger.exception("Worker tick failed")
+            if once:
+                return True
+            time.sleep(60)
 
 
 if __name__ == "__main__":

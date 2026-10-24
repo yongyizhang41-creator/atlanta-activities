@@ -33,6 +33,7 @@ export type Conflict = {
   overlap_end: string;
 };
 export type Reminder = {
+  editable: boolean;
   id: string;
   event_id: string;
   remind_at: string;
@@ -51,6 +52,7 @@ export type Plan = {
   unknown_end_events: { id: string; title: string }[];
   has_sent_reminder: boolean;
   reminder: Reminder | null;
+  reminders: Reminder[];
 };
 export type Filters = {
   week: "this" | "next";
