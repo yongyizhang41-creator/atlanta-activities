@@ -2,9 +2,14 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+PROJECT_ROOT = next(
+    (parent for parent in Path(__file__).resolve().parents if (parent / "compose.yaml").is_file()),
+    Path(__file__).resolve().parents[2],
+)
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=Path(__file__).resolve().parents[4] / ".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", extra="ignore")
     environment: str = "development"
     database_url: str = "postgresql+psycopg://atlanta:atlanta@127.0.0.1:55432/atlanta"
     app_origin: str = "http://localhost:3000"
@@ -18,7 +23,7 @@ class Settings(BaseSettings):
     maptiler_key: str = ""
     maptiler_geocoding_key: str = ""  # Legacy; backend lookup no longer uses MapTiler.
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
-    geocoding_cache_path: str = str(Path(__file__).resolve().parents[4] / ".local/geocoding.sqlite")
+    geocoding_cache_path: str = str(PROJECT_ROOT / ".local/geocoding.sqlite")
     map_style_url: str = "https://tiles.openfreemap.org/styles/positron"
     ai_daily_limit: int = 100
 
