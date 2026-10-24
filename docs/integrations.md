@@ -1,5 +1,7 @@
 # Integration status and evidence
 
+For the current public demo and enabled providers, see [Free demo deployment](demo-deployment.md). The provider notes below retain the original local integration verification history.
+
 ## Activity sources
 
 - Georgia Tech Campus Calendar: https://calendar.gatech.edu/event-search ; public pagination and article.mercury-event times/eligibility were fetched and parsed on 2026-10-22. robots.txt allows these paths. Source has no embedded coordinates; unknown buildings require configured geocoding. Curated venue coordinates include provenance. Do not publish academic/non-entertainment items just because they are on the calendar.
