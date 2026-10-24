@@ -1,0 +1,50 @@
+name: Refresh demo activities
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-activity-ingestion
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    # Standard hosted runners are free for public repositories.
+    if: github.event.repository.private == false && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: apps/api/requirements.lock
+      - run: pip install -r apps/api/requirements.lock
+      - name: Restore public venue cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .local/ingestion-geocoding.sqlite
+          key: public-venue-geocoding-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: public-venue-geocoding-
+      - name: Refresh activities
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.INGESTION_DATABASE_URL }}
+          ENVIRONMENT: production
+          GEOCODING_CACHE_PATH: ${{ github.workspace }}/.local/ingestion-geocoding.sqlite
+        run: |
+          test -n "$DATABASE_URL" || { echo 'Missing INGESTION_DATABASE_URL secret'; exit 1; }
+          export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+          python -m app.worker.main ingest
+      - name: Preserve public venue cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .local/ingestion-geocoding.sqlite
+          key: public-venue-geocoding-${{ github.run_id }}-${{ github.run_attempt }}
